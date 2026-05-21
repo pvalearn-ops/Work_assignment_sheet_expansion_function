@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>代辦商與檢查員交叉統計表</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 20px;
+            background-color: #f4f7f6;
+            color: #333;
+        }
+        h2 {
+            color: #1e7145; /* Excel 經典綠色 */
+            border-bottom: 2px solid #1e7145;
+            padding-bottom: 10px;
+        }
+        .controls {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            align-items: center;
+        }
+        .file-upload input[type="file"] {
+            border: 1px solid #ccc;
+            padding: 5px;
+            border-radius: 4px;
+        }
+        .date-range {
+            font-weight: bold;
+            color: #d9534f;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: center;
+        }
+        th {
+            background-color: #1e7145;
+            color: white;
+            cursor: pointer;
+            position: sticky;
+            top: 0;
+            user-select: none;
+        }
+        th:hover {
+            background-color: #155d38;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        tr:hover {
+            background-color: #e8f4ec;
+        }
+        td {
+            cursor: help; /* 提示有 tooltip 可以看 */
+        }
+        .sort-icon {
+            font-size: 0.8em;
+            margin-left: 5px;
+        }
+        #monthSelector {
+            display: none;
+            padding: 5px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>代辦商與檢查員交叉統計表</h2>
+
+    <div class="controls">
+        <div class="file-upload">
+            <label for="uploadFile"><b>上傳表單：</b></label>
+            <input type="file" id="uploadFile" accept=".xlsx, .xlsm" />
+        </div>
+        
+        <div>
+            <b>顯示模式：</b>
+            <label><input type="radio" name="viewMode" value="total" checked> 總量統計</label>
+            <label><input type="radio" name="viewMode" value="month"> 按月切換</label>
+            
+            <select id="monthSelector">
+                </select>
+        </div>
+
+        <div class="date-range" id="dateRange">
+            </div>
+    </div>
+
+    <div id="tableContainer">
+        <p style="text-align: center; color: #666;">請先上傳 Excel 檔案以進行分析。</p>
+    </div>
+
+    <script>
+        let rawRecords = [];     // 存放清洗後的所有資料
+        let uniqueMonths = [];   // 存放所有出現過的月份
+        let sortCol = 'agency';  // 預設排序欄位 (agency = 依代辦商名稱)
+        let sortAsc = true;      // 預設排序方向 (升冪)
+
+        // 綁定檔案上傳事件
+        document.getElementById('uploadFile').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const data = new Uint8Array(e.target.result);
+                // 使用 raw: false 讓日期時間維持格式化字串
+                const workbook = XLSX.read(data, {type: 'array', raw: false}); 
+                const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                
+                // 以二維陣列方式讀取資料 (A欄 = index 0)
+                const jsonData = XLSX.utils.sheet_to_json(firstSheet, {header: 1, defval: ""});
+                processData(jsonData);
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+        // 綁定模式切換事件
+        document.querySelectorAll('input[name="viewMode"]').forEach(radio => {
+            radio.addEventListener('change', function() {
+                const monthSel = document.getElementById('monthSelector');
+                if (this.value === 'month') {
+                    monthSel.style.display = 'inline-block';
+                } else {
+                    monthSel.style.display = 'none';
+                }
+                renderTable();
+            });
+        });
+
+        // 綁定月份切換事件
+        document.getElementById('monthSelector').addEventListener('change', renderTable);
+
+        // 資料清洗與解析
+        function processData(data) {
+            rawRecords = [];
+            let dateList = [];
+            let monthSet = new Set();
+
+            // 從第二行(索引1)開始讀取，避開標題列
+            for (let i = 1; i < data.length; i++) {
+                let row = data[i];
+                
+                // 檢查欄位是否存在（AA欄的 index 是 26）
+                let inspector = row[1] ? String(row[1]).trim() : "";       // B欄
+                let dateStr   = row[2] ? String(row[2]).trim() : "";       // C欄
+                let equipCode = row[4] ? String(row[4]).trim() : "";       // E欄
+                let agency    = row[26] ? String(row[26]).trim() : "";     // AA欄
+
+                // 4. 沒有"代辦商名稱"的資料則捨棄 (或者沒有檢查員也跳過)
+                if (!agency || !inspector || !dateStr) continue;
+
+                // 6. 取 E欄 設備代碼第一個英文字
+                let match = equipCode.match(/[A-Za-z]/);
+                let equipType = match ? match[0].toUpperCase() : "未分類";
+
+                // 處理日期與月份
+                let dateObj = new Date(dateStr);
+                if (!isNaN(dateObj)) {
+                    dateList.push(dateObj);
+                    // 轉為 YYYY-MM 格式
+                    let yyyy = dateObj.getFullYear();
+                    let mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+                    let monthKey = `${yyyy}-${mm}`;
+                    monthSet.add(monthKey);
+                    
+                    rawRecords.push({
+                        inspector: inspector,
+                        agency: agency,
+                        equipType: equipType,
+                        monthKey: monthKey,
+                        dateObj: dateObj
+                    });
+                }
+            }
+
+            if (rawRecords.length === 0) {
+                alert("未在檔案中找到符合的有效資料！");
+                return;
+            }
+
+            // 7. 顯示日期區間
+            let minDate = new Date(Math.min.apply(null, dateList));
+            let maxDate = new Date(Math.max.apply(null, dateList));
+            document.getElementById('dateRange').innerText = 
+                `📅 資料區間: ${formatDate(minDate)} ~ ${formatDate(maxDate)}`;
+
+            // 處理月份下拉選單
+            uniqueMonths = Array.from(monthSet).sort();
+            const monthSelect = document.getElementById('monthSelector');
+            monthSelect.innerHTML = uniqueMonths.map(m => `<option value="${m}">${m}</option>`).join('');
+
+            // 初始化排序狀態並產生報表
+            sortCol = 'agency';
+            sortAsc = true;
+            renderTable();
+        }
+
+        // 產生統計報表
+        function renderTable() {
+            if (rawRecords.length === 0) return;
+
+            // 判斷目前模式
+            const mode = document.querySelector('input[name="viewMode"]:checked').value;
+            const selectedMonth = document.getElementById('monthSelector').value;
+
+            // 依據模式篩選資料
+            let filteredData = rawRecords;
+            if (mode === 'month' && selectedMonth) {
+                filteredData = rawRecords.filter(d => d.monthKey === selectedMonth);
+            }
+
+            // 抓出獨立的 代辦商(Rows) 與 檢查員(Cols)
+            let agencies = [...new Set(filteredData.map(d => d.agency))];
+            let inspectors = [...new Set(filteredData.map(d => d.inspector))].sort(); // 檢查員預設依字母排
+
+            // 建立交叉分析字典: matrix[agency][inspector] = { count, types: {} }
+            let matrix = {};
+            agencies.forEach(a => {
+                matrix[a] = { total: 0, types: {} };
+                inspectors.forEach(i => {
+                    matrix[a][i] = { count: 0, types: {} };
+                });
+            });
+
+            // 統計資料填入矩陣
+            filteredData.forEach(d => {
+                matrix[d.agency][d.inspector].count++;
+                matrix[d.agency].total++;
+                
+                // 紀錄分類代碼數量 (個別檢查員)
+                if (!matrix[d.agency][d.inspector].types[d.equipType]) {
+                    matrix[d.agency][d.inspector].types[d.equipType] = 0;
+                }
+                matrix[d.agency][d.inspector].types[d.equipType]++;
+
+                // 紀錄分類代碼數量 (代辦商總計)
+                if (!matrix[d.agency].types[d.equipType]) {
+                    matrix[d.agency].types[d.equipType] = 0;
+                }
+                matrix[d.agency].types[d.equipType]++;
+            });
+
+            // 2. 排序邏輯處理 (針對列進行排序)
+            agencies.sort((a, b) => {
+                let valA, valB;
+                if (sortCol === 'agency') {
+                    valA = a;
+                    valB = b;
+                    return sortAsc ? valA.localeCompare(valB, 'zh-TW') : valB.localeCompare(valA, 'zh-TW');
+                } else if (sortCol === 'total') {
+                    valA = matrix[a].total;
+                    valB = matrix[b].total;
+                } else {
+                    valA = matrix[a][sortCol].count;
+                    valB = matrix[b][sortCol].count;
+                }
+                return sortAsc ? (valA - valB) : (valB - valA);
+            });
+
+            // 組合 HTML 表格
+            let html = `<table>
+                <thead>
+                    <tr>
+                        <th onclick="setSort('agency')">代辦商名稱 ${getSortIcon('agency')}</th>`;
+            
+            inspectors.forEach(i => {
+                html += `<th onclick="setSort('${i}')">${i} ${getSortIcon(i)}</th>`;
+            });
+            
+            html += `<th onclick="setSort('total')">總計 ${getSortIcon('total')}</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+
+            agencies.forEach(a => {
+                html += `<tr><td><b>${a}</b></td>`;
+                inspectors.forEach(i => {
+                    let cell = matrix[a][i];
+                    let displayValue = cell.count > 0 ? cell.count : '-';
+                    
+                    // 6. Tooltip (title 屬性) 顯示 E欄 第一個英文字的各數量
+                    let tooltip = '';
+                    if (cell.count > 0) {
+                        tooltip = Object.entries(cell.types)
+                            .map(([type, count]) => `[${type}] 類: ${count}件`)
+                            .join('\n');
+                    }
+                    
+                    html += `<td title="${tooltip}">${displayValue}</td>`;
+                });
+
+                // 代辦商總計的 Tooltip
+                let totalTooltip = '';
+                if (matrix[a].total > 0) {
+                    totalTooltip = Object.entries(matrix[a].types)
+                        .map(([type, count]) => `[${type}] 類: ${count}件`)
+                        .join('\n');
+                }
+                html += `<td title="${totalTooltip}"><b>${matrix[a].total}</b></td></tr>`;
+            });
+
+            html += `</tbody></table>`;
+            document.getElementById('tableContainer').innerHTML = html;
+        }
+
+        // 排序設定函數
+        function setSort(colName) {
+            if (sortCol === colName) {
+                sortAsc = !sortAsc; // 反轉排序
+            } else {
+                sortCol = colName;
+                sortAsc = (colName === 'agency') ? true : false; // 數字預設為由大到小(降冪)
+            }
+            renderTable();
+        }
+
+        // 取得排序圖示
+        function getSortIcon(colName) {
+            if (sortCol !== colName) return '<span class="sort-icon" style="color:#888;">↕</span>';
+            return sortAsc ? '<span class="sort-icon">▲</span>' : '<span class="sort-icon">▼</span>';
+        }
+
+        // 格式化日期函數 (YYYY/MM/DD)
+        function formatDate(dateObj) {
+            let yyyy = dateObj.getFullYear();
+            let mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+            let dd = String(dateObj.getDate()).padStart(2, '0');
+            return `${yyyy}/${mm}/${dd}`;
+        }
+    </script>
+</body>
+</html>
