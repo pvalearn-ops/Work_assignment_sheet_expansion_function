@@ -77,6 +77,75 @@
             padding: 5px;
             border-radius: 4px;
         }
+        .highlight-high {
+            background-color: #fdeee0;
+            color: #d9534f;
+            font-weight: bold;
+        }
+        .highlight-low {
+            background-color: #e0f0fd;
+            color: #0275d8;
+            font-weight: bold;
+        }
+        .sd-info {
+            font-size: 0.75em;
+            color: #888;
+            display: block;
+            margin-top: 4px;
+        }
+        .print-btn {
+            background-color: #1e7145;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-left: auto;
+        }
+        .print-btn:hover {
+            background-color: #155d38;
+        }
+        
+        /* 列印專屬設定 */
+        @media print {
+            @page {
+                size: landscape; /* 預設橫印 */
+                margin: 10mm;
+            }
+            body {
+                background-color: white;
+                margin: 0;
+            }
+            .controls {
+                display: none !important; /* 隱藏操作列 */
+            }
+            table {
+                font-size: 9pt; /* 縮小字體以擠進所有欄位 */
+                width: 100%;
+            }
+            th, td {
+                padding: 4px; /* 縮小間距 */
+            }
+            /* 強制列印背景顏色，保留異常值標示 */
+            * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+            /* 讓表頭在每頁重複出現，並避免列被切斷 */
+            thead {
+                display: table-header-group;
+            }
+            tr {
+                page-break-inside: avoid;
+            }
+            h2 {
+                text-align: center;
+                border-bottom: none;
+                margin-bottom: 5px;
+                padding-bottom: 0;
+            }
+        }
     </style>
 </head>
 <body>
@@ -100,6 +169,8 @@
 
         <div class="date-range" id="dateRange">
             </div>
+            
+        <button class="print-btn" onclick="window.print()">🖨️ 列印報表</button>
     </div>
 
     <div id="tableContainer">
@@ -257,6 +328,20 @@
                 matrix[d.agency].types[d.equipType]++;
             });
 
+            // 計算各代辦商的平均與標準差
+            agencies.forEach(a => {
+                let counts = inspectors.map(i => matrix[a][i].count);
+                let sum = counts.reduce((acc, val) => acc + val, 0);
+                let mean = sum / counts.length;
+                let variance = counts.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / counts.length;
+                let sd = Math.sqrt(variance);
+                
+                matrix[a].mean = mean;
+                matrix[a].sd = sd;
+                matrix[a].upperBound = mean + sd;
+                matrix[a].lowerBound = mean - sd;
+            });
+
             // 2. 排序邏輯處理 (針對列進行排序)
             agencies.sort((a, b) => {
                 let valA, valB;
@@ -290,7 +375,7 @@
                 <tbody>`;
 
             agencies.forEach(a => {
-                html += `<tr><td><b>${a}</b></td>`;
+                html += `<tr><td><b>${a}</b><span class="sd-info">(μ: ${matrix[a].mean.toFixed(1)}, σ: ${matrix[a].sd.toFixed(1)})</span></td>`;
                 inspectors.forEach(i => {
                     let cell = matrix[a][i];
                     let displayValue = cell.count > 0 ? cell.count : '-';
@@ -302,8 +387,20 @@
                             .map(([type, count]) => `[${type}] 類: ${count}件`)
                             .join('\n');
                     }
+
+                    // 判斷是否超過或低於標準差
+                    let cellClass = '';
+                    if (matrix[a].sd > 0) {
+                        if (cell.count > matrix[a].upperBound) {
+                            cellClass = 'highlight-high';
+                            displayValue += ' <span style="font-size:0.8em">▲</span>';
+                        } else if (cell.count < matrix[a].lowerBound) {
+                            cellClass = 'highlight-low';
+                            displayValue += ' <span style="font-size:0.8em">▼</span>';
+                        }
+                    }
                     
-                    html += `<td title="${tooltip}">${displayValue}</td>`;
+                    html += `<td class="${cellClass}" title="${tooltip}">${displayValue}</td>`;
                 });
 
                 // 代辦商總計的 Tooltip
