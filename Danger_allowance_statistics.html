@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>危險加給報表 - 視覺化分析</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.4.3/echarts.min.js"></script>
+
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background-color: #f5f7fa; color: #333; }
+        .container { max-width: 1200px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); position: relative; }
+        h1 { text-align: center; color: #2c3e50; }
+        .upload-section { text-align: center; margin: 30px 0; padding: 20px; border: 2px dashed #bdc3c7; border-radius: 8px; background-color: #fafbfc; }
+        input[type="file"] { font-size: 16px; }
+        
+        /* 列印按鈕 */
+        .print-btn {
+            position: absolute;
+            top: 30px;
+            right: 30px;
+            background-color: #1e7145;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            display: none; /* 預設隱藏，有資料時顯示 */
+        }
+        .print-btn:hover { background-color: #155d38; }
+
+        /* 頁籤設計 */
+        .tabs { display: flex; justify-content: center; margin-bottom: 20px; display: none; }
+        .tab-btn { background-color: #ecf0f1; border: none; padding: 12px 24px; font-size: 16px; cursor: pointer; border-radius: 5px 5px 0 0; margin: 0 5px; transition: 0.3s; }
+        .tab-btn:hover { background-color: #d5dbdb; }
+        .tab-btn.active { background-color: #3498db; color: white; font-weight: bold; }
+        
+        /* 圖表區塊 */
+        .chart-container { display: none; width: 100%; height: 500px; padding: 20px; box-sizing: border-box; border: 1px solid #e0e0e0; border-top: none; background: #fff; }
+        .chart-container.active { display: block; }
+        
+        #errorMsg { color: #e74c3c; text-align: center; font-weight: bold; margin-top: 10px; }
+
+        /* 列印功能專屬設定 */
+        @media print {
+            @page {
+                size: landscape; /* 預設橫印，給圖表足夠的空間 */
+                margin: 10mm;
+            }
+            body {
+                background-color: white;
+                margin: 0;
+                padding: 0;
+            }
+            .container {
+                box-shadow: none;
+                margin: 0;
+                padding: 0;
+                max-width: 100%;
+                border: none;
+            }
+            /* 隱藏不需要印出的區塊 */
+            .upload-section, .tabs, .print-btn {
+                display: none !important;
+            }
+            /* 強制列印背景色 */
+            * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+            /* 只印出 active 的圖表，確保不會兩個擠在一起 */
+            .chart-container {
+                border: none;
+                margin-bottom: 0;
+            }
+            .chart-container:not(.active) {
+                display: none !important;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <button class="print-btn" id="printBtn" onclick="prepareAndPrint()">🖨️ 列印報表</button>
+    <h1>👨‍🔧 危險加給報表視覺化分析</h1>
+    <h3 id="dateRangeDisplay" style="text-align: center; color: #7f8c8d; margin-top: -10px;"></h3>
+    
+    <div class="upload-section">
+        <p>請上傳 ERP 產出的「檢查機構 / 檢查員」Excel 報表</p>
+        <input type="file" id="excelFile" accept=".xls,.xlsx" />
+        <div id="errorMsg"></div>
+    </div>
+
+    <div class="tabs" id="tabsContainer">
+        <button class="tab-btn" id="btnMachine" onclick="switchTab('machine')">⚙️ 機械類</button>
+        <button class="tab-btn" id="btnEquipment" onclick="switchTab('equipment')">🛢️ 設備類</button>
+    </div>
+
+    <div id="machineChart" class="chart-container"></div>
+    <div id="equipmentChart" class="chart-container"></div>
+</div>
+
+<script>
+    // 儲存 ECharts 實例
+    let machineChartInstance = null;
+    let equipmentChartInstance = null;
+
+    // 監聽檔案上傳
+    document.getElementById('excelFile').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, {type: 'array'});
+                
+                // 找尋符合格式的 Sheet (A1=檢查機構, B1=檢查員)
+                let targetSheetName = null;
+                for (let sheetName of workbook.SheetNames) {
+                    const sheet = workbook.Sheets[sheetName];
+                    const A1 = sheet['A1'] ? sheet['A1'].v.toString().trim() : '';
+                    const B1 = sheet['B1'] ? sheet['B1'].v.toString().trim() : '';
+                    if (A1 === '檢查機構' && B1 === '檢查員') {
+                        targetSheetName = sheetName;
+                        break;
+                    }
+                }
+
+                if (!targetSheetName) {
+                    showError("找不到符合格式的工作表。請確認 A1 為「檢查機構」，B1 為「檢查員」。");
+                    return;
+                }
+
+                showError(""); // 清除錯誤
+                processData(workbook.Sheets[targetSheetName]);
+
+            } catch (err) {
+                console.error(err);
+                showError("檔案解析發生錯誤，請確認檔案格式。");
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    });
+
+    function showError(msg) {
+        document.getElementById('errorMsg').innerText = msg;
+    }
+
+
+    // 核心邏輯處理
+    function processData(sheet) {
+        // 將 sheet 轉換為 JSON 陣列，以 A, B, C... 作為屬性名稱，從第二行開始抓
+        const rows = XLSX.utils.sheet_to_json(sheet, {header: "A", defval: ""});
+        
+        // 儲存每個人的總分： { "機械": {"王小明": 15, "陳大頭": 46}, "設備": {...} }
+        const resultData = { "機械": {}, "設備": {} };
+        let dates = [];
+
+        for (let i = 1; i < rows.length; i++) { // i=1 代表第二列 (跳過表頭)
+            const row = rows[i];
+            const inspectorName = row['B'] ? row['B'].toString().trim() : "";
+            
+            // 擷取 C欄 的日期
+            let cVal = row['C'];
+            if(cVal) {
+                let dateObj = null;
+                if(typeof cVal === 'number') {
+                    dateObj = new Date(Math.round((cVal - 25569) * 86400 * 1000));
+                } else {
+                    let dStr = String(cVal).split(' ')[0].replace(/-/g, '/');
+                    let parts = dStr.split('/');
+                    if(parts.length >= 3) {
+                        let y = parseInt(parts[0], 10);
+                        if(y < 1000) y += 1911; // 處理民國年
+                        dateObj = new Date(y, parseInt(parts[1], 10)-1, parseInt(parts[2], 10));
+                    } else {
+                        dateObj = new Date(cVal);
+                    }
+                }
+                if(dateObj && !isNaN(dateObj.getTime())) {
+                    dates.push(dateObj);
+                }
+            }
+
+            if (!inspectorName) continue; // 沒有檢查員名字就跳過
+
+            const pointData = calcPoint(row);
+            const type = pointData.type; // "機械" 或是 "設備"
+            const point = pointData.point;
+
+            if (!resultData[type][inspectorName]) {
+                resultData[type][inspectorName] = 0;
+            }
+            resultData[type][inspectorName] += point;
+        }
+
+        // 顯示日期區間
+        if(dates.length > 0) {
+            let minD = new Date(Math.min(...dates));
+            let maxD = new Date(Math.max(...dates));
+            let formatDate = (d) => `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
+            document.getElementById('dateRangeDisplay').innerText = `📅 資料區間：${formatDate(minD)} ~ ${formatDate(maxD)}`;
+        } else {
+            document.getElementById('dateRangeDisplay').innerText = "";
+        }
+
+        // ⭐ 新增這段：處理 JavaScript 浮點數無限小數的問題，統一四捨五入到小數第一位
+        for (let type in resultData) {
+            for (let name in resultData[type]) {
+                // toFixed(1) 會轉成字串，所以外層再用 Number() 轉回數字
+                resultData[type][name] = Number(resultData[type][name].toFixed(1));
+            }
+        }
+
+        renderCharts(resultData);
+    }
+
+    // 翻譯自 VBA 的權重判斷邏輯
+    function calcPoint(row) {
+        let E = (row['E'] || '').toString().trim();
+        let F = (row['F'] || '').toString().trim();
+        let G = (row['G'] || '').toString().trim();
+        let H = (row['H'] || '').toString().trim();
+
+        // 1. 定期事前判斷
+        let result1 = (F === "定期") ? "定期" : "事前";
+        
+        // 2. 初複查判斷
+        let result2 = (G === "初查") ? "初查" : "複查";
+        
+        // 3. 機械設備類型代號 (去掉開頭的 *)
+        if(E.startsWith("*")) E = E.substring(1);
+        let pos = E.length === 10 ? (E.length - 6) : (E.length - 10);
+        let result3 = (pos > 0 && pos <= E.length) ? E.substring(pos - 1, pos).toUpperCase() : "";
+        
+        // 4. 判斷機械或設備
+        let result4 = ["F", "M", "E", "G"].includes(result3) ? "機械" : "設備";
+        
+        // 5. 判斷內外替檢查
+        let result5 = (H === "外") ? "外" : "內";
+        
+        // 6. 取容量
+        let result6 = 0;
+        if(["F", "M"].includes(result3)) result6 = parseFloat(row['I']) || 0;
+        else if(["E", "G"].includes(result3)) result6 = parseFloat(row['K']) || 0;
+        else if(result3 === "B") result6 = parseFloat(row['N']) || 0;
+        else if(["P", "S", "H"].includes(result3)) result6 = parseFloat(row['L']) || 0;
+
+        // 7. 判斷權重
+        let point = 0;
+        if(result4 === "機械") {
+            if(result1 === "事前") {
+                point = (result2 === "初查") ? 1.5 : 1;
+            } else { // 定期
+                if(result2 === "初查") {
+                    if((result3 === "F" && result6 >= 100) || (result3 === "M" && result6 >= 200) || result3 === "E") {
+                        point = 1.5;
+                    } else {
+                        point = 1;
+                    }
+                } else {
+                    point = 0.5; // 複查
+                }
+            }
+        } else { // 設備
+            if(result1 === "事前") {
+                point = (result2 === "初查") ? 1.6 : 1;
+            } else { // 定期
+                if(result2 === "初查") {
+                    if(result5 === "外") {
+                        point = 0.5;
+                    } else {
+                        if(result3 === "B" && result6 >= 500) {
+                            point = 1.5;
+                        } else if((result3 === "P" && result6 < 1) || (result3 === "S" && result6 < 1) || (result3 === "H" && result6 < 1) || (result3 === "B" && result6 < 10)) {
+                            point = 0.5;
+                        } else {
+                            point = 1;
+                        }
+                    }
+                } else {
+                    point = 0.5;
+                }
+            }
+        }
+        return { type: result4, point: point };
+    }
+
+    // 繪製圖表與控制 UI
+    function renderCharts(data) {
+        const hasMachine = Object.keys(data["機械"]).length > 0;
+        const hasEquipment = Object.keys(data["設備"]).length > 0;
+
+        document.getElementById('tabsContainer').style.display = (hasMachine && hasEquipment) ? 'flex' : 'none';
+        
+        document.getElementById('btnMachine').style.display = hasMachine ? 'block' : 'none';
+        document.getElementById('btnEquipment').style.display = hasEquipment ? 'block' : 'none';
+
+        if (machineChartInstance) machineChartInstance.dispose();
+        if (equipmentChartInstance) equipmentChartInstance.dispose();
+
+        if (hasMachine) {
+            machineChartInstance = buildChart('machineChart', '機械類加權座次', data["機械"], 45, 65, '#3498db');
+            document.getElementById('machineChart').classList.add('has-data');
+        } else {
+            document.getElementById('machineChart').classList.remove('has-data');
+        }
+        
+        if (hasEquipment) {
+            equipmentChartInstance = buildChart('equipmentChart', '設備類加權座次', data["設備"], 50, 75, '#1abc9c');
+            document.getElementById('equipmentChart').classList.add('has-data');
+        } else {
+            document.getElementById('equipmentChart').classList.remove('has-data');
+        }
+
+        // 顯示列印按鈕
+        if (hasMachine || hasEquipment) {
+            document.getElementById('printBtn').style.display = 'block';
+        } else {
+            document.getElementById('printBtn').style.display = 'none';
+        }
+
+        // 自動切換到有資料的頁籤
+        if (hasMachine) {
+            switchTab('machine');
+        } else if (hasEquipment) {
+            switchTab('equipment');
+        }
+    }
+
+    // ECharts 長條圖生成器
+    function buildChart(containerId, title, dataObj, line1, line2, color) {
+        const chartDom = document.getElementById(containerId);
+        const myChart = echarts.init(chartDom);
+        
+        // 排序人員 (由分數高到低)
+        const sortedData = Object.entries(dataObj).sort((a, b) => b[1] - a[1]);
+        const names = sortedData.map(item => item[0]);
+        const values = sortedData.map(item => item[1]);
+
+        const option = {
+            title: { text: title, left: 'center' },
+            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+            grid: { left: '3%', right: '10%', bottom: '5%', containLabel: true },
+            xAxis: { 
+                type: 'category', 
+                data: names,
+                axisLabel: { interval: 0, rotate: 30 } // 避免名字太長重疊
+            },
+            yAxis: { type: 'value', name: '加權座次' },
+            series: [{
+                name: '加權分數',
+                type: 'bar',
+                data: values,
+                itemStyle: { color: color, borderRadius: [4, 4, 0, 0] },
+                label: { show: true, position: 'top' }, // 柱子上方顯示數值
+                markLine: {
+                    symbol: 'none',
+                    lineStyle: { type: 'dashed', width: 2 },
+                    data: [
+                        { yAxis: line1, name: '門檻 ' + line1, itemStyle: { color: '#f39c12' }, label: { formatter: '{b}' } },
+                        { yAxis: line2, name: '門檻 ' + line2, itemStyle: { color: '#e74c3c' }, label: { formatter: '{b}' } }
+                    ]
+                }
+            }]
+        };
+
+        myChart.setOption(option);
+        return myChart;
+    }
+
+    // 頁籤切換邏輯
+    function switchTab(tabType) {
+        document.getElementById('btnMachine').classList.remove('active');
+        document.getElementById('btnEquipment').classList.remove('active');
+        document.getElementById('machineChart').classList.remove('active');
+        document.getElementById('equipmentChart').classList.remove('active');
+
+        if (tabType === 'machine') {
+            document.getElementById('btnMachine').classList.add('active');
+            document.getElementById('machineChart').classList.add('active');
+            if(machineChartInstance) machineChartInstance.resize(); // 確保圖表正確渲染尺寸
+        } else {
+            document.getElementById('btnEquipment').classList.add('active');
+            document.getElementById('equipmentChart').classList.add('active');
+            if(equipmentChartInstance) equipmentChartInstance.resize();
+        }
+    }
+
+    // 準備列印：只重新渲染當前有顯示的圖表
+    function prepareAndPrint() {
+        if(document.getElementById('machineChart').classList.contains('active') && machineChartInstance) {
+            machineChartInstance.resize();
+        }
+        if(document.getElementById('equipmentChart').classList.contains('active') && equipmentChartInstance) {
+            equipmentChartInstance.resize();
+        }
+        
+        // 延遲一下讓 ECharts 重繪完畢再呼叫列印
+        setTimeout(() => {
+            window.print();
+        }, 500);
+    }
+</script>
+
+</body>
+</html>
