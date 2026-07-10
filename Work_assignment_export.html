@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>設備簡易查核表</title>
+    <!-- XLSX Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
+        
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #f0f2f5;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+
+        /* 網頁操作界面樣式 */
+        .no-print-area {
+            max-width: 800px;
+            margin: 0 auto 30px auto;
+            background: white;
+            padding: 30px;
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+        }
+
+        .no-print-area h2 {
+            margin-top: 0;
+            color: #1e7145;
+            font-size: 24px;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .upload-box {
+            border: 2px dashed #cbd5e1;
+            padding: 30px;
+            text-align: center;
+            border-radius: 12px;
+            cursor: pointer;
+            background-color: #f8fafc;
+            transition: all 0.2s ease;
+        }
+
+        .upload-box:hover {
+            border-color: #1e7145;
+            background-color: #f1f5f9;
+        }
+
+        .btn {
+            background-color: #1e7145;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn:hover {
+            background-color: #155d38;
+        }
+
+        .info-msg {
+            color: #64748b;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+
+        /* 預覽與列印專屬樣式 */
+        .print-pages-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 40px;
+        }
+
+        /* A4 紙張尺寸直向 (Portrait) */
+        .a4-page {
+            background: white;
+            width: 210mm;
+            height: 297mm;
+            padding: 8mm 12mm 10mm 12mm; /* 稍微縮小上方留邊 */
+            box-shadow: 0 0 15px rgba(0,0,0,0.1);
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            page-break-after: always;
+            page-break-inside: avoid;
+        }
+
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 4px;
+            padding-bottom: 2px;
+            border-bottom: 2px solid #000;
+            width: 100%;
+            overflow: hidden;
+            white-space: nowrap;
+        }
+
+        .header-title {
+            font-size: 18px;
+            font-weight: bold;
+            letter-spacing: 1px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            flex-shrink: 1;
+            /* 依據文字長度調整字型大小，避免折行 */
+            max-width: 60%; 
+        }
+
+        .header-meta {
+            font-size: 12px;
+            font-weight: normal;
+            flex-shrink: 0;
+            display: flex;
+            gap: 15px;
+        }
+
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr); /* 一排2格 */
+            grid-template-rows: repeat(3, 86mm);   /* 將高度從 90mm 縮小至 86mm（3排共 258mm），保留足夠空間給印表機邊界 */
+            gap: 4px 12px;
+            flex-grow: 1;
+            align-content: stretch;
+        }
+
+        /* 單個卡片(Grid Card) 樣式 */
+        .grid-card {
+            border: 2px solid #000;
+            border-radius: 4px;
+            padding: 4px 6px;
+            font-size: 11px;
+            line-height: 1.25;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* 卡片內表格佈局 */
+        .card-row {
+            display: flex;
+            border-bottom: 1px solid #333;
+            padding-bottom: 4px;
+            margin-bottom: 4px;
+        }
+        .card-row:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+            margin-bottom: 0;
+        }
+
+        .card-row-inspect {
+            border-bottom: 1px solid #333;
+            padding-bottom: 2px;
+            margin-bottom: 2px;
+        }
+
+        .card-col {
+            flex: 1;
+            padding: 0 4px;
+        }
+        .border-r {
+            border-right: 1px solid #333;
+        }
+
+        /* 大編號標示 */
+        .card-num {
+            font-size: 18px;
+            font-weight: 900;
+            border-right: 2px solid #000;
+            padding-right: 8px;
+            margin-right: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 24px;
+        }
+
+        .field-label {
+            font-weight: bold;
+        }
+        
+        .field-value {
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .checkbox-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px 8px;
+            font-size: 10px;
+        }
+
+        .checkbox-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+        }
+
+        .square-box {
+            width: 11px;
+            height: 11px;
+            border: 1px solid #000;
+            display: inline-block;
+            vertical-align: middle;
+        }
+
+        /* 項目檢驗格細分 */
+        .inspect-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 2px;
+            font-size: 9px;
+            border-bottom: 1px solid #333;
+            padding-bottom: 4px;
+            margin-bottom: 4px;
+        }
+
+        .inspect-item {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+        }
+
+        .flex-row-center {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .bottom-row {
+            display: flex;
+            border-top: 1px solid #000;
+            margin-top: auto;
+            padding-top: 4px;
+            font-size: 10px;
+        }
+
+        .page-footer-info {
+            position: absolute;
+            bottom: 4px;
+            right: 12px;
+            font-size: 9px;
+            color: #666;
+        }
+
+        /* 列印模式設定 */
+        @media print {
+            @page {
+                size: A4 portrait;
+                margin: 0mm; /* 消除瀏覽器預設頁首、頁尾、網址與頁碼 */
+            }
+            body {
+                background-color: white;
+                padding: 0;
+                margin: 0;
+            }
+            .no-print-area {
+                display: none !important;
+            }
+            .print-pages-container {
+                gap: 0;
+                display: block;
+            }
+            .a4-page {
+                box-shadow: none;
+                margin: 0;
+                padding: 10mm 12mm 10mm 12mm; /* 標準 A4 內距 */
+                width: 210mm;
+                height: 297mm;
+                page-break-after: always;
+                page-break-inside: avoid;
+                overflow: hidden;
+            }
+            * {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="no-print-area">
+        <h2>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+            設備簡易查核表系統
+        </h2>
+        <p>請選擇工作指派單的 Excel 檔案 (.xlsx, .xlsm)，系統將自動分類、分頁，並轉為符合 A4 六格列印格式的卡片。</p>
+        
+        <div class="upload-box" onclick="document.getElementById('excelFile').click()">
+            <input type="file" id="excelFile" accept=".xlsx, .xlsm" style="display: none;">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 10px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+            <div><strong>點擊此處或拖曳 Excel 檔案至此上傳</strong></div>
+            <div class="info-msg" id="fileNameDisplay">支援 .xlsx, .xlsm 格式</div>
+        </div>
+
+        <div style="margin-top: 20px; display: flex; justify-content: space-between; align-items: center;">
+            <div id="statsInfo" style="font-weight: 500; color: #475569;"></div>
+            <button class="btn" id="printBtn" style="display: none;" onclick="window.print()">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+                列印 A4 六格單
+            </button>
+        </div>
+    </div>
+
+    <!-- 列印頁面容器 -->
+    <div class="print-pages-container" id="pagesContainer">
+        <!-- 動態產生 -->
+    </div>
+
+    <script>
+        document.getElementById('excelFile').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            document.getElementById('fileNameDisplay').textContent = `已載入: ${file.name}`;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, {type: 'array', raw: false});
+                const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                const jsonData = XLSX.utils.sheet_to_json(sheet, {header: 1, defval: ""});
+                
+                if (jsonData.length <= 1) {
+                    alert("Excel 檔案中無有效資料或格式不符！");
+                    return;
+                }
+                
+                processExcelData(jsonData);
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+        function processExcelData(rows) {
+            const headers = rows[0].map(h => String(h).trim());
+            
+            const idxEquipCode = headers.findIndex(h => h.includes("設備代碼"));
+            const idxCheckType = headers.findIndex(h => h.includes("內觀檢/替代檢查") || h.includes("內觀檢"));
+            const idxDate = headers.findIndex(h => h.includes("檢查日期時間") || h.includes("檢查日期"));
+            const idxContent = headers.findIndex(h => h.includes("內容物名稱") || h.includes("內容物"));
+            const idxInspector = headers.findIndex(h => h.includes("檢查員"));
+            
+            let idxCompany = headers.findIndex(h => h.includes("事業單位"));
+            if (idxCompany === -1) {
+                idxCompany = headers.findIndex(h => h.includes("查機構") || h.includes("代辦商"));
+            }
+
+            if (idxEquipCode === -1 || idxDate === -1 || idxInspector === -1 || idxCompany === -1) {
+                alert("找不到必要的標題欄位，請確認 Excel 包含：設備代碼、檢查日期時間、檢查員、事業單位名稱/查機構！");
+                return;
+            }
+
+            const records = [];
+            for (let i = 1; i < rows.length; i++) {
+                const row = rows[i];
+                if (!row[idxDate] || !row[idxInspector] || !row[idxCompany]) continue;
+
+                const rawDateStr = String(row[idxDate]).trim();
+                let datePart = rawDateStr.split(' ')[0] || rawDateStr;
+                datePart = datePart.replace(/-/g, '/');
+
+                const inspector = String(row[idxInspector]).trim();
+                const company = String(row[idxCompany]).trim();
+                const equipCode = String(row[idxEquipCode]).trim();
+                const rawCheckType = idxCheckType !== -1 ? String(row[idxCheckType]).trim() : "";
+                const content = idxContent !== -1 ? String(row[idxContent]).trim() : "";
+
+                let checkTypeStr = "";
+                if (rawCheckType.includes("外")) {
+                    checkTypeStr = "外檢";
+                } else if (rawCheckType.includes("內")) {
+                    checkTypeStr = "內檢";
+                } else if (rawCheckType.includes("替")) {
+                    checkTypeStr = "替代";
+                } else {
+                    checkTypeStr = rawCheckType;
+                }
+
+                records.push({
+                    equipCode,
+                    checkTypeStr,
+                    datePart,
+                    content,
+                    inspector,
+                    company
+                });
+            }
+
+            if (records.length === 0) {
+                alert("未找到符合格式的有效記錄！");
+                return;
+            }
+
+            const groups = {};
+            records.forEach(rec => {
+                const key = `${rec.company}_${rec.inspector}_${rec.datePart}`;
+                if (!groups[key]) {
+                    groups[key] = {
+                        company: rec.company,
+                        inspector: rec.inspector,
+                        datePart: rec.datePart,
+                        items: []
+                    };
+                }
+                groups[key].items.push(rec);
+            });
+
+            renderPages(groups);
+        }
+
+        function renderPages(groups) {
+            const pagesContainer = document.getElementById('pagesContainer');
+            pagesContainer.innerHTML = "";
+            let totalCardsCount = 0;
+            let totalPagesCount = 0;
+
+            Object.keys(groups).sort().forEach(groupKey => {
+                const group = groups[groupKey];
+                const items = group.items;
+                
+                const cardsPerPage = 6;
+                const pageCountForGroup = Math.ceil(items.length / cardsPerPage);
+
+                for (let pageIdx = 0; pageIdx < pageCountForGroup; pageIdx++) {
+                    totalPagesCount++;
+                    const pageDiv = document.createElement('div');
+                    pageDiv.className = 'a4-page';
+
+                    const headerDiv = document.createElement('div');
+                    headerDiv.className = 'page-header';
+                    
+                    const compName = group.company;
+                    let fontSize = '18px';
+                    if (compName.length > 25) {
+                        fontSize = '13px';
+                    } else if (compName.length > 18) {
+                        fontSize = '15px';
+                    }
+                    
+                    headerDiv.innerHTML = `
+                        <div class="header-title" style="font-size: ${fontSize};" title="${compName}">${compName}</div>
+                        <div class="header-meta">
+                            <span>檢查員: <strong>${group.inspector}</strong></span>
+                            <span>日期: <strong>${group.datePart}</strong></span>
+                        </div>
+                    `;
+                    pageDiv.appendChild(headerDiv);
+
+                    const gridContainer = document.createElement('div');
+                    gridContainer.className = 'grid-container';
+
+                    const startIdx = pageIdx * cardsPerPage;
+                    const endIdx = Math.min(startIdx + cardsPerPage, items.length);
+
+                    for (let i = startIdx; i < startIdx + 6; i++) {
+                        const cardIndex = (i - startIdx) + 1;
+                        const cardDiv = document.createElement('div');
+                        cardDiv.className = 'grid-card';
+
+                        if (i < endIdx) {
+                            totalCardsCount++;
+                            const item = items[i];
+                            cardDiv.innerHTML = `
+                                 <div style="flex-grow: 1; display: flex; flex-direction: column; justify-content: space-between;">
+                                    <div class="card-row">
+                                        <div class="card-num" style="font-size: 22px;">${cardIndex}</div>
+                                        <div class="card-col border-r" style="font-size: 12px;">
+                                            <div class="field-label">編號:</div>
+                                            <div class="field-value" style="font-size: 13px;">${item.equipCode}</div>
+                                        </div>
+                                        <div class="card-col border-r" style="font-size: 12px;">
+                                            <div style="font-weight: bold; margin-bottom: 2px;">帶入檢驗:</div>
+                                            <div style="font-size: 14px; font-weight: bold; color: #1e7145;">${item.checkTypeStr || '—'}</div>
+                                            <div class="checkbox-group" style="margin-top: 3px; font-size: 11px;">
+                                                <span class="checkbox-item"><span class="square-box" style="width: 12px; height: 12px;"></span> 132</span>
+                                                <span class="checkbox-item"><span class="square-box" style="width: 12px; height: 12px;"></span> 133</span>
+                                            </div>
+                                        </div>
+                                        <div class="card-col" style="font-size: 12px;">
+                                            <div class="field-label">日期:</div>
+                                            <div class="field-value" style="font-size: 13px;">${item.datePart}</div>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="card-row" style="font-size: 12px; padding-bottom: 4px; margin-bottom: 4px;">
+                                        <div class="card-col border-r">
+                                            <span class="field-label" style="font-size: 13px;">鋼印:</span>
+                                        </div>
+                                        <div class="card-col">
+                                            <span class="field-label" style="font-size: 13px;">廠號:</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="card-row" style="font-size: 12px; padding-bottom: 4px; margin-bottom: 4px;">
+                                        <div class="card-col border-r" style="min-height: 40px;">
+                                            <div class="field-label" style="font-size: 13px;">本體檢查有無異狀:</div>
+                                        </div>
+                                        <div class="card-col" style="min-height: 40px;">
+                                            <div class="field-label" style="font-size: 13px;">最高使用壓力:</div>
+                                        </div>
+                                    </div>
+
+                                    <div class="inspect-grid" style="font-size: 11px; gap: 4px; border-bottom: 2px solid #000; padding-bottom: 4px; margin-bottom: 4px;">
+                                        <div class="inspect-item"><span class="square-box" style="width: 12px; height: 12px;"></span> 測厚</div>
+                                        <div class="inspect-item" style="border-right: 1px solid #ddd; padding-right: 2px;"><span class="square-box" style="width: 12px; height: 12px;"></span> 耐壓</div>
+                                        <div class="inspect-item"><span class="square-box" style="width: 12px; height: 12px;"></span> 標示</div>
+                                        <div class="inspect-item"><span class="square-box" style="width: 12px; height: 12px;"></span> 爆發</div>
+                                        <div class="inspect-item"><span class="square-box" style="width: 12px; height: 12px;"></span> 被覆材</div>
+                                        <div class="inspect-item" style="border-right: 1px solid #ddd; padding-right: 2px;"><span class="square-box" style="width: 12px; height: 12px;"></span> 自控</div>
+                                        <div class="inspect-item"><span class="square-box" style="width: 12px; height: 12px;"></span> 過熱</div>
+                                        <div class="inspect-item"><span class="square-box" style="width: 12px; height: 12px;"></span> 節煤</div>
+                                        <div class="inspect-item"><span class="square-box" style="width: 12px; height: 12px;"></span> 沖放</div>
+                                        <div class="inspect-item" style="border-right: 1px solid #ddd; padding-right: 2px;"><span class="square-box" style="width: 12px; height: 12px;"></span> 給水</div>
+                                        <div class="inspect-item" style="background-color: #f1f5f9; padding: 2px;"><span class="square-box" style="width: 12px; height: 12px;"></span> 毒性</div>
+                                        <div class="inspect-item" style="background-color: #f1f5f9; padding: 2px;"><span class="square-box" style="width: 12px; height: 12px;"></span> 緊遮</div>
+                                    </div>
+
+                                    <div class="card-row" style="margin-bottom: 4px; border-bottom: 2px solid #000; padding-bottom: 4px; min-height: 52px;">
+                                        <div class="card-col border-r" style="flex: 2; font-size: 13px;">
+                                            <div class="field-label">安全閥:</div>
+                                        </div>
+                                        <div class="card-col border-r" style="flex: 1; background-color: #f1f5f9; padding: 4px;">
+                                            <div class="inspect-item" style="margin-bottom: 4px; font-size: 11px;"><span class="square-box" style="width: 12px; height: 12px;"></span> 沉陷</div>
+                                            <div class="inspect-item" style="font-size: 11px;"><span class="square-box" style="width: 12px; height: 12px;"></span> 可燃</div>
+                                        </div>
+                                        <div class="card-col" style="flex: 1; background-color: #f1f5f9; padding: 4px;">
+                                            <div class="inspect-item" style="margin-bottom: 4px; font-size: 11px;"><span class="square-box" style="width: 12px; height: 12px;"></span> 真空</div>
+                                            <div class="inspect-item" style="font-size: 11px;"><span class="square-box" style="width: 12px; height: 12px;"></span> LPG</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="bottom-row" style="font-size: 12px; padding-top: 4px; min-height: 48px;">
+                                    <div style="flex: 1; border-right: 2px solid #000; padding-right: 6px; display: flex; flex-direction: column; justify-content: space-between;">
+                                        <div style="margin-bottom: 2px;"><span class="square-box" style="width: 12px; height: 12px;"></span> 壓力表</div>
+                                        <div style="margin-bottom: 2px;"><span class="square-box" style="width: 12px; height: 12px;"></span> 液位計</div>
+                                        <div><span class="square-box" style="width: 12px; height: 12px;"></span> 溫度計</div>
+                                    </div>
+                                    <div style="flex: 1; border-right: 2px solid #000; padding-left: 6px; padding-right: 6px; font-size: 12px;">
+                                        <span class="field-label">圖:</span>
+                                    </div>
+                                    <div style="flex: 2; padding-left: 8px; font-size: 12px;">
+                                        <span class="field-label">內容物:</span>
+                                        <span class="field-value" style="font-size: 12px; font-weight: bold; color: #1e7145; display: block; margin-top: 2px; word-break: break-all;">${item.content || '—'}</span>
+                                    </div>
+                                </div>
+                            `;
+                        } else {
+                            cardDiv.style.borderColor = "#ddd";
+                            cardDiv.innerHTML = `
+                                <div class="card-num" style="color: #ddd; border-right: 1px dashed #ddd;">${cardIndex}</div>
+                                <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #ccc; font-style: italic;">
+                                    (無資料)
+                                </div>
+                            `;
+                        }
+                        gridContainer.appendChild(cardDiv);
+                    }
+
+                    pageDiv.appendChild(gridContainer);
+
+                    const footerInfo = document.createElement('div');
+                    footerInfo.className = 'page-footer-info';
+                    footerInfo.textContent = `第 ${pageIdx + 1} / ${pageCountForGroup} 頁 (本分組共 ${items.length} 筆)`;
+                    pageDiv.appendChild(footerInfo);
+
+                    pagesContainer.appendChild(pageDiv);
+                }
+            });
+
+            document.getElementById('statsInfo').innerHTML = `📊 共解析出 <strong>${totalCardsCount}</strong> 筆有效記錄，已產生 <strong>${totalPagesCount}</strong> 頁 A4 印單。`;
+            document.getElementById('printBtn').style.display = 'inline-flex';
+        }
+    </script>
+</body>
+</html>
