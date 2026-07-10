@@ -365,6 +365,7 @@
             const idxDate = headers.findIndex(h => h.includes("檢查日期時間") || h.includes("檢查日期"));
             const idxContent = headers.findIndex(h => h.includes("內容物名稱") || h.includes("內容物"));
             const idxInspector = headers.findIndex(h => h.includes("檢查員"));
+            const idxInspectClass = headers.findIndex(h => h.includes("檢查種類"));
             
             let idxCompany = headers.findIndex(h => h.includes("事業單位"));
             if (idxCompany === -1) {
@@ -381,13 +382,17 @@
                 const row = rows[i];
                 if (!row[idxDate] || !row[idxInspector] || !row[idxCompany]) continue;
 
+                if (idxInspectClass !== -1) {
+                    const inspectClass = String(row[idxInspectClass]).trim();
+                    if (inspectClass !== "定期") continue;
+                }
+
                 const rawDateStr = String(row[idxDate]).trim();
                 let datePart = rawDateStr.split(' ')[0] || rawDateStr;
                 datePart = datePart.replace(/-/g, '/');
 
                 const inspector = String(row[idxInspector]).trim();
                 let company = String(row[idxCompany]).trim();
-                // 將 "股份有限公司" 或 "有限公司" 替換為 "-" 以節省空間
                 company = company.replace(/股份有限公司/g, '-').replace(/有限公司/g, '-');
                 
                 const equipCode = String(row[idxEquipCode]).trim();
@@ -431,6 +436,14 @@
                     };
                 }
                 groups[key].items.push(rec);
+            });
+
+            Object.keys(groups).forEach(key => {
+                groups[key].items.sort((a, b) => {
+                    const companyComp = a.company.localeCompare(b.company, 'zh-TW');
+                    if (companyComp !== 0) return companyComp;
+                    return a.equipCode.localeCompare(b.equipCode);
+                });
             });
 
             renderPages(groups);
@@ -512,92 +525,134 @@
                                 compFontSize = '9.5px';
                             }
 
+                            const typeChar = item.equipCode.charAt(2).toUpperCase();
+                            let show測厚 = false, show被覆材 = false, show沖放 = false, show耐壓 = false;
+                            let show自控 = false, show給水 = false, show標示 = false, show過熱 = false;
+                            let show爆發 = false, show節煤 = false;
+                            let show毒性 = false, show緊遮 = false, show沉陷 = false, show真空 = false, show可燃 = false, showLPG = false;
+
+                            if (typeChar === 'B') {
+                                show測厚 = show被覆材 = show沖放 = show耐壓 = show自控 = show給水 = show標示 = show過熱 = show爆發 = show節煤 = true;
+                            } else if (typeChar === 'P') {
+                                show測厚 = show被覆材 = true;
+                            } else if (typeChar === 'S') {
+                                show測厚 = show被覆材 = show毒性 = show緊遮 = show沉陷 = show真空 = show可燃 = showLPG = true;
+                            } else if (typeChar === 'H') {
+                                show測厚 = show被覆材 = showLPG = true;
+                            } else {
+                                show測厚 = show被覆材 = true;
+                            }
+
+                            // 產生 HTML 項目的輔助函式：只顯示對應英文字母所屬的選項，不屬於的直接不顯示 (隱藏) 以釋放最大高度空間
+                            const getInspectItemsHTML = () => {
+                                // 固定項目：測厚、被覆材 永遠排在第一列開頭
+                                const list = ['測厚', '被覆材'];
+
+                                // 依設備種類顯示的變動項目
+                                if (show耐壓) list.push('耐壓');
+                                if (show標示) list.push('標示');
+                                if (show爆發) list.push('爆發');
+                                if (show自控) list.push('自控');
+                                if (show過熱) list.push('過熱');
+                                if (show節煤) list.push('節煤');
+                                if (show沖放) list.push('沖放');
+                                if (show給水) list.push('給水');
+                                if (show毒性) list.push('毒性');
+                                if (show緊遮) list.push('緊遮');
+                                if (show沉陷) list.push('沉陷');
+                                if (show真空) list.push('真空');
+                                if (show可燃) list.push('可燃');
+                                if (showLPG) list.push('LPG');
+
+                                // 以空格補滿至 4 的倍數，讓固定項目強制換到最後一列
+                                while (list.length % 4 !== 0) list.push(null);
+
+                                // 固定項目：壓力表、液位計、溫度計 永遠獨占最後一列
+                                list.push('壓力表', '液位計', '溫度計');
+
+                                return list.map(label => {
+                                    if (label === null) return `<div class="inspect-item"></div>`;
+                                    return `<div class="inspect-item"><span class="square-box" style="width: 12px; height: 12px;"></span> ${label}</div>`;
+                                }).join('');
+                            };
+
                             cardDiv.innerHTML = `
-                                 <div style="flex-grow: 1; display: flex; flex-direction: column; justify-content: space-between;">
-                                    <div class="card-row">
-                                        <div class="card-num" style="font-size: 22px;">${cardIndex}</div>
-                                        <div class="card-col border-r" style="font-size: 12px; display: flex; flex-direction: column; justify-content: space-between;">
-                                            <div><span class="field-label">編號:</span></div>
-                                            <div class="field-value" style="font-size: 12px; font-weight: bold; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;">${item.equipCode}</div>
-                                            <div style="font-size: ${compFontSize}; color: #555; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 110px;" title="${compName}">${compName}</div>
+                                 <div style="flex-grow: 1; display: flex; flex-direction: column; justify-content: flex-start;">
+                                    <!-- 第一、二列與大編號進行合併佈局 -->
+                                    <div class="card-row" style="padding-bottom: 2px; margin-bottom: 2px; border-bottom: 1px solid #333; display: flex; align-items: stretch;">
+                                        <!-- 大編號跨越左側，形成一二列合併效果 -->
+                                        <div class="card-num" style="font-size: 24px; font-weight: bold; border-right: 2px solid #000; padding: 0 10px; margin-right: 8px; display: flex; align-items: center; justify-content: center; min-width: 24px; line-height: 1;">
+                                            ${cardIndex}
                                         </div>
-                                        <div class="card-col border-r" style="font-size: 11px;">
-                                            <div style="font-weight: bold; margin-bottom: 2px;">帶入檢驗:</div>
-                                            <div style="font-size: 13px; font-weight: bold; color: #1e7145;">${item.checkTypeStr || '—'}</div>
-                                            <div class="checkbox-group" style="margin-top: 3px; font-size: 10px;">
-                                                <span class="checkbox-item"><span class="square-box" style="width: 11px; height: 11px;"></span> 132</span>
-                                                <span class="checkbox-item"><span class="square-box" style="width: 11px; height: 11px;"></span> 133</span>
+                                        
+                                        <!-- 右側欄位：上為事業單位名稱，下為編號、檢查別、日期 -->
+                                        <div style="flex-grow: 1; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; width: calc(100% - 40px);">
+                                            <!-- 上方：事業單位名稱 -->
+                                            <div style="font-size: ${compFontSize}; font-weight: bold; padding-bottom: 2px; border-bottom: 1px dashed #ddd; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #333;" title="${item.company}">
+                                                事業單位: ${item.company}
                                             </div>
-                                        </div>
-                                        <div class="card-col" style="font-size: 11px;">
-                                            <div class="field-label">日期:</div>
-                                            <div class="field-value" style="font-size: 11px;">${item.datePart}</div>
+                                            
+                                            <!-- 下方：編號、檢查別、日期（標籤在上、數值在下兩列顯示） -->
+                                            <div style="display: flex; font-size: 11.5px; padding-top: 2px; line-height: 1.4; align-items: stretch;">
+                                                <div style="flex: 1.3; border-right: 1px solid #ddd; overflow: hidden; white-space: nowrap; padding-right: 2px;">
+                                                    <div style="font-weight: bold;">編號:</div>
+                                                    <div style="font-weight: bold;">${item.equipCode}</div>
+                                                </div>
+                                                <div style="flex: 1.4; border-right: 1px solid #ddd; padding-left: 4px; padding-right: 2px; overflow: hidden; white-space: nowrap; display: flex; justify-content: space-between; gap: 4px;">
+                                                    <div>
+                                                        <div style="font-weight: bold;">檢查別:</div>
+                                                        <div style="color: #1e7145; font-weight: bold;">${item.checkTypeStr || '—'}</div>
+                                                    </div>
+                                                    <div style="font-size: 10px; display: flex; flex-direction: column; justify-content: center; gap: 2px;">
+                                                        <div class="inspect-item"><span class="square-box"></span> 132</div>
+                                                        <div class="inspect-item"><span class="square-box"></span> 133</div>
+                                                    </div>
+                                                </div>
+                                                <div style="flex: 1.1; padding-left: 4px; overflow: hidden; white-space: nowrap;">
+                                                    <div style="font-weight: bold;">日期:</div>
+                                                    <div>${item.datePart}</div>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                     
-                                    <div class="card-row" style="font-size: 11px; padding-bottom: 4px; margin-bottom: 4px;">
+                                    <!-- 各欄位標題靠上緊貼、不留空隙；多餘高度由 flex-grow 分給手寫填寫區 -->
+                                    <div class="card-row" style="font-size: 11px; padding-bottom: 2px; margin-bottom: 2px; align-items: stretch; flex: 1 1 auto; min-height: 38px;">
                                         <div class="card-col border-r">
-                                            <span class="field-label" style="font-size: 12px;">鋼印:</span>
+                                            <div class="field-label" style="font-size: 11.5px; margin-bottom: 0;">鋼印:</div>
                                         </div>
                                         <div class="card-col">
-                                            <span class="field-label" style="font-size: 12px;">廠號:</span>
+                                            <div class="field-label" style="font-size: 11.5px; margin-bottom: 0;">廠號:</div>
                                         </div>
                                     </div>
 
-                                    <div class="card-row" style="font-size: 11px; padding-bottom: 4px; margin-bottom: 4px;">
-                                        <div class="card-col border-r" style="min-height: 38px;">
-                                            <div class="field-label" style="font-size: 12px;">本體檢查有無異狀:</div>
+                                    <div class="card-row" style="font-size: 11px; padding-bottom: 2px; margin-bottom: 2px; align-items: stretch; flex: 1.4 1 auto; min-height: 52px;">
+                                        <div class="card-col border-r">
+                                            <div class="field-label" style="font-size: 11.5px; margin-bottom: 0;">本體檢查有無異狀:</div>
                                         </div>
-                                        <div class="card-col" style="min-height: 38px;">
-                                            <div class="field-label" style="font-size: 12px;">最高使用壓力:</div>
+                                        <div class="card-col">
+                                            <div class="field-label" style="font-size: 11.5px; margin-bottom: 0;">最高使用壓力:</div>
                                         </div>
                                     </div>
 
-                                    <!-- 項目檢驗格：移除了 毒性 & 緊遮 -->
-                                    <div class="inspect-grid" style="font-size: 11px; gap: 4px; border-bottom: 2px solid #000; padding-bottom: 4px; margin-bottom: 4px;">
-                                        <div class="inspect-item"><span class="square-box" style="width: 12px; height: 12px;"></span> 測厚</div>
-                                        <div class="inspect-item" style="border-right: 1px solid #ddd; padding-right: 2px;"><span class="square-box" style="width: 12px; height: 12px;"></span> 耐壓</div>
-                                        <div class="inspect-item"><span class="square-box" style="width: 12px; height: 12px;"></span> 標示</div>
-                                        <div class="inspect-item"><span class="square-box" style="width: 12px; height: 12px;"></span> 爆發</div>
-                                        <div class="inspect-item"><span class="square-box" style="width: 12px; height: 12px;"></span> 被覆材</div>
-                                        <div class="inspect-item" style="border-right: 1px solid #ddd; padding-right: 2px;"><span class="square-box" style="width: 12px; height: 12px;"></span> 自控</div>
-                                        <div class="inspect-item"><span class="square-box" style="width: 12px; height: 12px;"></span> 過熱</div>
-                                        <div class="inspect-item"><span class="square-box" style="width: 12px; height: 12px;"></span> 節煤</div>
-                                        <div class="inspect-item"><span class="square-box" style="width: 12px; height: 12px;"></span> 沖放</div>
-                                        <div class="inspect-item" style="border-right: 1px solid #ddd; padding-right: 2px;"><span class="square-box" style="width: 12px; height: 12px;"></span> 給水</div>
-                                        <div class="inspect-item" style="color: #ccc; font-style: italic; text-align: center;">—</div>
-                                        <div class="inspect-item" style="color: #ccc; font-style: italic; text-align: center;">—</div>
-                                    </div>
-
-                                    <!-- 1. 將 毒性、緊遮、沉陷、真空、可燃、LPG 合併在安全閥右方，並用一個大虛線框包起來，同時對齊上面第 3, 4 欄 -->
-                                    <div class="card-row" style="margin-bottom: 4px; border-bottom: 2px solid #000; padding-bottom: 4px; min-height: 52px; align-items: stretch;">
-                                        <!-- 左半邊（占 1/2 寬度，對齊上排第 1, 2 欄寬度） -->
-                                        <div class="card-col border-r" style="flex: 2; font-size: 12px; display: flex; align-items: center;">
-                                            <div class="field-label">安全閥:</div>
-                                        </div>
-                                        <!-- 右半邊大虛線框（占 1/2 寬度，對齊上排第 3, 4 欄寬度） -->
-                                        <div class="card-col" style="flex: 2; border: 2px dashed #000; background-color: #f8fafc; padding: 4px; border-radius: 4px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px 8px; align-items: center; align-content: center; font-size: 11px;">
-                                            <div class="inspect-item"><span class="square-box" style="width: 12px; height: 12px;"></span> 毒性</div>
-                                            <div class="inspect-item"><span class="square-box" style="width: 12px; height: 12px;"></span> 緊遮</div>
-                                            <div class="inspect-item"><span class="square-box" style="width: 12px; height: 12px;"></span> 沉陷</div>
-                                            <div class="inspect-item"><span class="square-box" style="width: 12px; height: 12px;"></span> 真空</div>
-                                            <div class="inspect-item"><span class="square-box" style="width: 12px; height: 12px;"></span> 可燃</div>
-                                            <div class="inspect-item"><span class="square-box" style="width: 12px; height: 12px;"></span> LPG</div>
-                                        </div>
+                                    <!-- 統一集中的單選格區域：減小 gap 與 padding-bottom 減少下沉留白 -->
+                                    <div class="inspect-grid" style="font-size: 11px; gap: 2px 4px; border-bottom: 2px solid #000; padding-bottom: 3px; margin-bottom: 3px; min-height: 36px; grid-template-columns: repeat(4, 1fr); align-content: flex-start;">
+                                        ${getInspectItemsHTML()}
                                     </div>
                                 </div>
 
-                                <div class="bottom-row" style="font-size: 11px; padding-top: 4px; min-height: 48px;">
-                                    <div style="flex: 0.9; border-right: 2px solid #000; padding-right: 4px; display: flex; flex-direction: column; justify-content: space-between; font-size: 10px;">
-                                        <div style="margin-bottom: 1px; white-space: nowrap;"><span class="square-box" style="width: 10px; height: 10px;"></span> 壓力表</div>
-                                        <div style="margin-bottom: 1px; white-space: nowrap;"><span class="square-box" style="width: 10px; height: 10px;"></span> 液位計</div>
-                                        <div style="white-space: nowrap;"><span class="square-box" style="width: 10px; height: 10px;"></span> 溫度計</div>
+                                <!-- 底部排版：安全閥、圖、內容物 欄高增加，min-height 設為 68px -->
+                                <div class="bottom-row" style="font-size: 11px; padding-top: 4px; min-height: 68px; align-items: stretch;">
+                                    <!-- 左半邊：安全閥 (供手寫畫圖/填寫) -->
+                                    <div style="flex: 2.2; border-right: 2px solid #000; padding-left: 6px; padding-right: 6px; font-size: 11px;">
+                                        <span class="field-label">安全閥:</span>
                                     </div>
-                                    <!-- 中間「圖：」區域大幅度放大 -->
-                                    <div style="flex: 3.2; border-right: 2px solid #000; padding-left: 6px; padding-right: 6px; font-size: 11px;">
+                                    <!-- 中間：圖 -->
+                                    <div style="flex: 2.2; border-right: 2px solid #000; padding-left: 6px; padding-right: 6px; font-size: 11px;">
                                         <span class="field-label">圖:</span>
                                     </div>
-                                    <div style="flex: 1.4; padding-left: 6px; font-size: 9.5px; line-height: 1.2;">
+                                    <!-- 右側：內容物 -->
+                                    <div style="flex: 1.6; padding-left: 6px; font-size: 9.5px; line-height: 1.2;">
                                         <span class="field-label">內容物:</span>
                                         <span class="field-value" style="font-size: 9px; font-weight: bold; color: #1e7145; display: block; margin-top: 1px; word-break: break-all;">${item.content || '—'}</span>
                                     </div>
