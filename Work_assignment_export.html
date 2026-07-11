@@ -526,53 +526,40 @@
                             }
 
                             const typeChar = item.equipCode.charAt(2).toUpperCase();
-                            let show測厚 = false, show被覆材 = false, show沖放 = false, show耐壓 = false;
-                            let show自控 = false, show給水 = false, show標示 = false, show過熱 = false;
-                            let show爆發 = false, show節煤 = false;
-                            let show毒性 = false, show緊遮 = false, show沉陷 = false, show真空 = false, show可燃 = false, showLPG = false;
 
+                            // 依設備種類固定的變動檢查項目（P 與 S 共用同一態樣）
+                            let variableItems;
                             if (typeChar === 'B') {
-                                show測厚 = show被覆材 = show沖放 = show耐壓 = show自控 = show給水 = show標示 = show過熱 = show爆發 = show節煤 = true;
-                            } else if (typeChar === 'P') {
-                                show測厚 = show被覆材 = true;
-                            } else if (typeChar === 'S') {
-                                show測厚 = show被覆材 = show毒性 = show緊遮 = show沉陷 = show真空 = show可燃 = showLPG = true;
+                                variableItems = ['沖放', '耐壓', '自控', '給水', '標示', '過熱', '爆發', '節煤'];
+                            } else if (typeChar === 'P' || typeChar === 'S') {
+                                variableItems = ['毒性', '沉陷', '可燃', '緊遮', '真空', '覆土式', '冷箱'];
                             } else if (typeChar === 'H') {
-                                show測厚 = show被覆材 = showLPG = true;
+                                variableItems = ['代替內部', '耐壓', '氣密', '緊遮', '真空', '防波板', '高度檢知桿', '外部標示', '真空度'];
                             } else {
-                                show測厚 = show被覆材 = true;
+                                variableItems = [];
                             }
 
-                            // 產生 HTML 項目的輔助函式：只顯示對應英文字母所屬的選項，不屬於的直接不顯示 (隱藏) 以釋放最大高度空間
+                            // 產生 HTML 項目的輔助函式
                             const getInspectItemsHTML = () => {
-                                // 固定項目：測厚、被覆材 永遠排在第一列開頭
-                                const list = ['測厚', '被覆材'];
+                                // 固定項目：測厚、被覆材 永遠排在第一列開頭（加底色標示）
+                                const list = [
+                                    { label: '測厚', fixed: true },
+                                    { label: '被覆材', fixed: true }
+                                ];
 
                                 // 依設備種類顯示的變動項目
-                                if (show耐壓) list.push('耐壓');
-                                if (show標示) list.push('標示');
-                                if (show爆發) list.push('爆發');
-                                if (show自控) list.push('自控');
-                                if (show過熱) list.push('過熱');
-                                if (show節煤) list.push('節煤');
-                                if (show沖放) list.push('沖放');
-                                if (show給水) list.push('給水');
-                                if (show毒性) list.push('毒性');
-                                if (show緊遮) list.push('緊遮');
-                                if (show沉陷) list.push('沉陷');
-                                if (show真空) list.push('真空');
-                                if (show可燃) list.push('可燃');
-                                if (showLPG) list.push('LPG');
+                                variableItems.forEach(label => list.push({ label }));
 
                                 // 以空格補滿至 4 的倍數，讓固定項目強制換到最後一列
                                 while (list.length % 4 !== 0) list.push(null);
 
-                                // 固定項目：壓力表、液位計、溫度計 永遠獨占最後一列
-                                list.push('壓力表', '液位計', '溫度計');
+                                // 固定項目：壓力表、液位計、溫度計 永遠獨占最後一列（加底色標示）
+                                list.push({ label: '壓力表', fixed: true }, { label: '液位計', fixed: true }, { label: '溫度計', fixed: true });
 
-                                return list.map(label => {
-                                    if (label === null) return `<div class="inspect-item"></div>`;
-                                    return `<div class="inspect-item"><span class="square-box" style="width: 12px; height: 12px;"></span> ${label}</div>`;
+                                return list.map(entry => {
+                                    if (entry === null) return `<div class="inspect-item"></div>`;
+                                    const bg = entry.fixed ? ' style="background-color: #fde68a; border-radius: 2px; padding: 0 2px;"' : '';
+                                    return `<div class="inspect-item"${bg}><span class="square-box" style="width: 12px; height: 12px;"></span> ${entry.label}</div>`;
                                 }).join('');
                             };
 
@@ -641,8 +628,8 @@
                                     </div>
                                 </div>
 
-                                <!-- 底部排版：安全閥、圖、內容物 欄高增加，min-height 設為 68px -->
-                                <div class="bottom-row" style="font-size: 11px; padding-top: 4px; min-height: 68px; align-items: stretch;">
+                                <!-- 底部排版：安全閥、圖、內容物 欄高增加，min-height 提高至 92px -->
+                                <div class="bottom-row" style="font-size: 11px; padding-top: 4px; min-height: 92px; align-items: stretch;">
                                     <!-- 左半邊：安全閥 (供手寫畫圖/填寫) -->
                                     <div style="flex: 2.2; border-right: 2px solid #000; padding-left: 6px; padding-right: 6px; font-size: 11px;">
                                         <span class="field-label">安全閥:</span>
