@@ -319,7 +319,14 @@
             <div class="info-msg" id="fileNameDisplay">支援 .xlsx, .xlsm 格式</div>
         </div>
 
-        <div style="margin-top: 20px; display: flex; justify-content: space-between; align-items: center;">
+        <div style="margin-top: 20px; display: flex; align-items: center; gap: 10px;">
+            <label style="display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; font-weight: 500; color: #475569;">
+                <input type="checkbox" id="toggleBlankCards" checked style="width: 18px; height: 18px; cursor: pointer; accent-color: #1e7145;">
+                顯示空白卡片（補滿至 12 格供手寫增加案件）
+            </label>
+        </div>
+
+        <div style="margin-top: 15px; display: flex; justify-content: space-between; align-items: center;">
             <div id="statsInfo" style="font-weight: 500; color: #475569;"></div>
             <button class="btn" id="printBtn" style="display: none;" onclick="window.print()">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
@@ -446,10 +453,20 @@
                 });
             });
 
+            lastGroups = groups;
             renderPages(groups);
         }
 
+        // 記住最後一次解析的資料，供切換開關重新渲染使用
+        let lastGroups = null;
+
+        // 切換是否顯示空白卡片
+        document.getElementById('toggleBlankCards').addEventListener('change', function() {
+            if (lastGroups) renderPages(lastGroups);
+        });
+
         function renderPages(groups) {
+            const showBlank = document.getElementById('toggleBlankCards').checked;
             const pagesContainer = document.getElementById('pagesContainer');
             pagesContainer.innerHTML = "";
             let totalCardsCount = 0;
@@ -481,7 +498,8 @@
                     `;
                     pageDiv.appendChild(headerDiv);
 
-                    if (pageIdx >= pageCountForGroup) {
+                    // 不顯示空白卡片時（原版行為）：多出來的偶數湊頁改為整頁虛線空白頁
+                    if (!showBlank && pageIdx >= pageCountForGroup) {
                         const blankDiv = document.createElement('div');
                         blankDiv.style.display = 'flex';
                         blankDiv.style.alignItems = 'center';
@@ -515,6 +533,8 @@
 
                         if (i < endIdx) {
                             totalCardsCount++;
+                            // 有資料的卡片外框加粗，與空白卡片做區分
+                            cardDiv.style.borderWidth = '3px';
                             const item = items[i];
                             
                             const compName = item.company;
@@ -645,12 +665,104 @@
                                     </div>
                                 </div>
                             `;
-                        } else {
+                        } else if (!showBlank) {
+                            // 不顯示空白卡片時（原版行為）：多餘格位顯示淡色「(無資料)」佔位
                             cardDiv.style.borderColor = "#ddd";
                             cardDiv.innerHTML = `
                                 <div class="card-num" style="color: #ddd; border-right: 1px dashed #ddd;">${cardIndex}</div>
                                 <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #ccc; font-style: italic;">
                                     (無資料)
+                                </div>
+                            `;
+                        } else {
+                            // 空白卡片：改用虛線外框，與有資料的實線外框做區分，方便一眼辨識
+                            cardDiv.style.borderStyle = 'dashed';
+                            // 空白卡片：顯示完整可手寫版面（供臨時增加案件手寫填入）
+                            // 單選格只保留 5 個固定有底色的項目：測厚、被覆材、壓力表、液位計、溫度計
+                            const blankInspectHTML = [
+                                { label: '測厚', fixed: true },
+                                { label: '被覆材', fixed: true },
+                                null,
+                                null,
+                                { label: '壓力表', fixed: true },
+                                { label: '液位計', fixed: true },
+                                { label: '溫度計', fixed: true }
+                            ].map(entry => {
+                                if (entry === null) return `<div class="inspect-item"></div>`;
+                                const bg = ' style="background-color: #fde68a; border-radius: 2px; padding: 0 2px;"';
+                                return `<div class="inspect-item"${bg}><span class="square-box" style="width: 12px; height: 12px;"></span> ${entry.label}</div>`;
+                            }).join('');
+
+                            cardDiv.innerHTML = `
+                                 <div style="flex-grow: 1; display: flex; flex-direction: column; justify-content: flex-start;">
+                                    <div class="card-row" style="padding-bottom: 2px; margin-bottom: 2px; border-bottom: 1px solid #333; display: flex; align-items: stretch;">
+                                        <div class="card-num" style="font-size: 24px; font-weight: bold; border-right: 2px solid #000; padding: 0 10px; margin-right: 8px; display: flex; align-items: center; justify-content: center; min-width: 24px; line-height: 1;">
+                                            ${cardIndex}
+                                        </div>
+                                        <div style="flex-grow: 1; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; width: calc(100% - 40px);">
+                                            <div style="font-size: 11px; font-weight: bold; padding-bottom: 2px; border-bottom: 1px dashed #ddd; overflow: hidden; white-space: nowrap; color: #333;">
+                                                事業單位:
+                                            </div>
+                                            <div style="display: flex; font-size: 11.5px; padding-top: 2px; line-height: 1.4; align-items: stretch;">
+                                                <div style="flex: 1.3; border-right: 1px solid #ddd; overflow: hidden; white-space: nowrap; padding-right: 2px;">
+                                                    <div style="font-weight: bold;">編號:</div>
+                                                    <div>&nbsp;</div>
+                                                </div>
+                                                <div style="flex: 1.4; border-right: 1px solid #ddd; padding-left: 4px; padding-right: 2px; overflow: hidden; white-space: nowrap; display: flex; justify-content: space-between; gap: 6px; align-items: center;">
+                                                    <div style="font-size: 10px; display: flex; flex-direction: column; justify-content: center; gap: 2px;">
+                                                        <div class="inspect-item"><span class="square-box"></span> 外檢</div>
+                                                        <div class="inspect-item"><span class="square-box"></span> 內外檢</div>
+                                                    </div>
+                                                    <div style="font-size: 10px; display: flex; flex-direction: column; justify-content: center; gap: 2px;">
+                                                        <div class="inspect-item"><span class="square-box"></span> 132</div>
+                                                        <div class="inspect-item"><span class="square-box"></span> 133</div>
+                                                    </div>
+                                                </div>
+                                                <div style="flex: 1.1; padding-left: 4px; overflow: hidden; white-space: nowrap;">
+                                                    <div style="font-weight: bold;">日期:</div>
+                                                    <div>${group.datePart}</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="card-row" style="font-size: 11px; padding-bottom: 2px; margin-bottom: 2px; align-items: stretch; flex: 1 1 auto; min-height: 38px;">
+                                        <div class="card-col border-r">
+                                            <div class="field-label" style="font-size: 11.5px; margin-bottom: 0;">鋼印:</div>
+                                        </div>
+                                        <div class="card-col">
+                                            <div class="field-label" style="font-size: 11.5px; margin-bottom: 0;">廠號:</div>
+                                        </div>
+                                    </div>
+
+                                    <div class="card-row" style="font-size: 11px; padding-bottom: 2px; margin-bottom: 2px; align-items: stretch; flex: 1.4 1 auto; min-height: 52px;">
+                                        <div class="card-col border-r">
+                                            <div class="field-label" style="font-size: 11.5px; margin-bottom: 0;">本體檢查有無異狀:</div>
+                                        </div>
+                                        <div class="card-col">
+                                            <div class="field-label" style="font-size: 11.5px; margin-bottom: 0;">最高使用壓力:</div>
+                                        </div>
+                                    </div>
+
+                                    <div class="inspect-grid" style="font-size: 11px; gap: 2px 4px; border-bottom: none; padding-bottom: 3px; margin-bottom: 3px; min-height: 36px; grid-template-columns: repeat(4, 1fr); align-content: flex-start;">
+                                        ${blankInspectHTML}
+                                    </div>
+
+                                    <!-- 單選格下方預留兩列空白空間，供檢查員手寫（不畫線） -->
+                                    <div style="height: 14px; margin-bottom: 2px;"></div>
+                                    <div style="height: 14px; margin-bottom: 1px;"></div>
+                                </div>
+
+                                <div class="bottom-row" style="font-size: 11px; padding-top: 4px; min-height: 92px; align-items: stretch;">
+                                    <div style="flex: 2.2; border-right: 2px solid #000; padding-left: 6px; padding-right: 6px; font-size: 11px;">
+                                        <span class="field-label">安全閥:</span>
+                                    </div>
+                                    <div style="flex: 2.2; border-right: 2px solid #000; padding-left: 6px; padding-right: 6px; font-size: 11px;">
+                                        <span class="field-label">圖:</span>
+                                    </div>
+                                    <div style="flex: 1.6; padding-left: 6px; font-size: 9.5px; line-height: 1.2;">
+                                        <span class="field-label">內容物:</span>
+                                    </div>
                                 </div>
                             `;
                         }
