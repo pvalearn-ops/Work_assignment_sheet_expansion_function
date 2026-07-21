@@ -106,7 +106,12 @@
         .print-btn:hover {
             background-color: #155d38;
         }
-        
+
+        /* 列印專用資訊列：螢幕上隱藏 */
+        #printInfo {
+            display: none;
+        }
+
         /* 列印專屬設定 */
         @media print {
             @page {
@@ -145,12 +150,23 @@
                 margin-bottom: 5px;
                 padding-bottom: 0;
             }
+            /* 列印時顯示資料區間與統計範圍資訊 */
+            #printInfo {
+                display: block;
+                text-align: center;
+                font-size: 11pt;
+                color: #000;
+                margin-bottom: 10px;
+            }
         }
     </style>
 </head>
 <body>
 
     <h2>代辦商與檢查員交叉統計表</h2>
+
+    <!-- 列印專用資訊列：螢幕上隱藏，僅列印時顯示 -->
+    <div id="printInfo"></div>
 
     <div class="controls">
         <div class="file-upload">
@@ -182,6 +198,7 @@
         let uniqueMonths = [];   // 存放所有出現過的月份
         let sortCol = 'agency';  // 預設排序欄位 (agency = 依代辦商名稱)
         let sortAsc = true;      // 預設排序方向 (升冪)
+        let dataRangeText = '';  // 存放資料區間文字 (供螢幕與列印共用)
 
         // 綁定檔案上傳事件
         document.getElementById('uploadFile').addEventListener('change', function(e) {
@@ -269,8 +286,8 @@
             // 7. 顯示日期區間
             let minDate = new Date(Math.min.apply(null, dateList));
             let maxDate = new Date(Math.max.apply(null, dateList));
-            document.getElementById('dateRange').innerText = 
-                `📅 資料區間: ${formatDate(minDate)} ~ ${formatDate(maxDate)}`;
+            dataRangeText = `資料區間: ${formatDate(minDate)} ~ ${formatDate(maxDate)}`;
+            document.getElementById('dateRange').innerText = `📅 ${dataRangeText}`;
 
             // 處理月份下拉選單
             uniqueMonths = Array.from(monthSet).sort();
@@ -296,6 +313,12 @@
             if (mode === 'month' && selectedMonth) {
                 filteredData = rawRecords.filter(d => d.monthKey === selectedMonth);
             }
+
+            // 更新列印專用資訊列 (顯示資料區間與目前統計範圍)
+            let scopeText = (mode === 'month' && selectedMonth)
+                ? `統計範圍: ${selectedMonth} (單月)`
+                : `統計範圍: 全部月份總量`;
+            document.getElementById('printInfo').innerText = `${dataRangeText}　|　${scopeText}`;
 
             // 抓出獨立的 代辦商(Rows) 與 檢查員(Cols)
             let agencies = [...new Set(filteredData.map(d => d.agency))];
